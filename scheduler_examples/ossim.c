@@ -8,11 +8,13 @@
 #include "debug.h"
 
 #define MAX_CLIENTS 128
+#define RR_QUANTUM_MS 500
 
 #include <stdlib.h>
 #include <sys/errno.h>
 
 #include "fifo.h"
+#include "rr.h"
 
 #include "msg.h"
 #include "queue.h"
@@ -233,9 +235,9 @@ void check_blocked_queue(queue_t * blocked_queue, queue_t * command_queue, uint3
 
 static const char *SCHEDULER_NAMES[] = {
     "FIFO",
+    "RR",
 /*
     "SJF",
-    "RR",
     "MLFQ",
 */
     NULL
@@ -244,8 +246,8 @@ static const char *SCHEDULER_NAMES[] = {
 typedef enum  {
     NULL_SCHEDULER = -1,
     SCHED_FIFO = 0,
+    SCHED_RR ,
     SCHED_SJF,
-    SCHED_RR,
     SCHED_MLFQ
 } scheduler_en;
 
@@ -264,7 +266,7 @@ scheduler_en get_scheduler(const char *name) {
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        printf("Usage: %s <scheduler>\nScheduler options: FIFO", argv[0]);
+        printf("Usage: %s <scheduler>\nScheduler options: FIFO, RR\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
@@ -309,6 +311,9 @@ int main(int argc, char *argv[]) {
         switch (scheduler_type) {
             case SCHED_FIFO:
                 fifo_scheduler(current_time_ms, &ready_queue, &CPU);
+                break;
+            case SCHED_RR:
+                rr_scheduler(current_time_ms, &ready_queue, &CPU, RR_QUANTUM_MS);
                 break;
 
             default:

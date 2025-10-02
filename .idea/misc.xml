@@ -6,4 +6,7 @@
   <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/scheduler_examples">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
+  <component name="WestSettings"><![CDATA[{
+  "westExecutable": "west.exe"
+}]]></component>
 </project>
