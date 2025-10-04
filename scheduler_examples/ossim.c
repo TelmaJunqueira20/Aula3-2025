@@ -18,29 +18,16 @@
 
 #include "msg.h"
 #include "queue.h"
+#include "sjf.h"
 
 static uint32_t PID = 0;
 
-
-
-/**
- * @brief Set up the server socket for the scheduler.
- *
- * This function creates a UNIX domain socket, binds it to a specified path,
- * and sets it to listen for incoming connections. It also sets the socket to
- * non-blocking mode.
- *
- * @param socket_path The path where the socket will be created
- * @return int Returns the server file descriptor on success, or -1 on failure
- */
 int setup_server_socket(const char *socket_path) {
     int server_fd;
     struct sockaddr_un addr;
 
-    // Clean up old socket file
     unlink(socket_path);
 
-    // Create UNIX socket
     if ((server_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
         perror("socket");
         return -1;
@@ -73,16 +60,7 @@ int setup_server_socket(const char *socket_path) {
     return server_fd;
 }
 
-/**
- * @brief Check for new client connections and add them to the queue.
- *
- * This function accepts new client connections on the server socket,
- * sets the client sockets to non-blocking mode, and enqueues them
- * into the provided queue.
- *
- * @param command_queue The queue to which new pcb will be added
- * @param server_fd The server socket file descriptor
- */
+
 void check_new_commands(queue_t *command_queue, queue_t *blocked_queue, queue_t *ready_queue, int server_fd, uint32_t current_time_ms) {
     // Accept new client connections
     int client_fd;
@@ -144,12 +122,16 @@ void check_new_commands(queue_t *command_queue, queue_t *blocked_queue, queue_t 
         }
         // We have received a message
         if (msg.request == PROCESS_REQUEST_RUN) {
-            current_pcb->pid = msg.pid; // Set the pid from the message
+            current_pcb->pid = msg.pid;
             current_pcb->time_ms = msg.time_ms;
-            current_pcb->ellapsed_time_ms = 0;
-            current_pcb->status = TASK_RUNNING;
+            current_pcb->cpu_time_ms = 0;
+            current_pcb->quantum_used_ms = 0;
+            current_pcb->arrival_time_ms = current_time_ms;   // marca quando entrou na ready queue
+            current_pcb->last_update_time_ms = current_time_ms;
+            current_pcb->status = TASK_RUNNING;                 // ready até ser escalonado
             enqueue_pcb(ready_queue, current_pcb);
-            DBG("Process %d requested RUN for %d ms\n", current_pcb->pid, current_pcb->time_ms);
+
+            DBG("Process %d requested RUN for %d ms\n", current_pcb->pid, current_pcb->time_ms, current_pcb->arrival_time_ms);
         } else if (msg.request == PROCESS_REQUEST_BLOCK) {
             current_pcb->pid = msg.pid; // Set the pid from the message
             current_pcb->time_ms = msg.time_ms;
@@ -180,25 +162,14 @@ void check_new_commands(queue_t *command_queue, queue_t *blocked_queue, queue_t 
 
 }
 
-/**
- * @brief Check the blocked queue for messages from clients.
- *
- * This function iterates through the blocked queue, checking each client
- * socket for incoming messages. If a RUN message is received, the corresponding
- * pcb is moved to the command queue and an ACK message is sent back to the client.
- * If a client disconnects or an error occurs, the client is removed from the blocked queue.
- *
- * @param blocked_queue The queue containing PCBs in I/O wait stated (blocked) from CPU
- * @param command_queue The queue where PCBs ready for new instructions will be moved
- * @param current_time_ms The current time in milliseconds
- */
+
 void check_blocked_queue(queue_t * blocked_queue, queue_t * command_queue, uint32_t current_time_ms) {
-    // Check all elements of the blocked queue for new messages
+
     queue_elem_t * elem = blocked_queue->head;
     while (elem != NULL) {
         pcb_t *pcb = elem->pcb;
 
-        // Make sure the time is updated only once per cycle
+
         if (pcb->last_update_time_ms < current_time_ms) {
             if (pcb->time_ms > TICKS_MS) {
                 pcb->time_ms -= TICKS_MS;
@@ -208,7 +179,7 @@ void check_blocked_queue(queue_t * blocked_queue, queue_t * command_queue, uint3
         }
 
         if (pcb->time_ms == 0) {
-            // Send DONE message to the application
+
             msg_t msg = {
                 .pid = pcb->pid,
                 .request = PROCESS_REQUEST_DONE,
@@ -222,13 +193,13 @@ void check_blocked_queue(queue_t * blocked_queue, queue_t * command_queue, uint3
             pcb->last_update_time_ms = current_time_ms;
             enqueue_pcb(command_queue, pcb);
 
-            // Remove from blocked queue
+
             remove_queue_elem(blocked_queue, elem);
             queue_elem_t *tmp = elem;
-            elem = elem->next;  // Do this here, because we free it in the next line
+            elem = elem->next;
             free(tmp);
         } else {
-            elem = elem->next;  // If not done already, do it now
+            elem = elem->next;
         }
     }
 }
@@ -236,8 +207,8 @@ void check_blocked_queue(queue_t * blocked_queue, queue_t * command_queue, uint3
 static const char *SCHEDULER_NAMES[] = {
     "FIFO",
     "RR",
-/*
     "SJF",
+/*
     "MLFQ",
 */
     NULL
@@ -276,15 +247,11 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // We set up 3 queues: 1 for the simulator and 2 for scheduling
-    // - COMMAND queue: for PCBs that are waiting for (new) instructions from the app
-    // - READY queue: for PCBs that are ready to run on the CPU
-    // - BLOCKED queue: for PCBs that are blocked waiting for I/O
     queue_t command_queue = {.head = NULL, .tail = NULL};
     queue_t ready_queue = {.head = NULL, .tail = NULL};
     queue_t blocked_queue = {.head = NULL, .tail = NULL};
 
-    // We only have a single CPU that is a pointer to the actively running PCB on the CPU
+
     pcb_t *CPU = NULL;
 
     int server_fd = setup_server_socket(SOCKET_PATH);
@@ -295,19 +262,13 @@ int main(int argc, char *argv[]) {
     printf("Scheduler server listening on %s...\n", SOCKET_PATH);
     uint32_t current_time_ms = 0;
     while (1) {
-        // Check for new connections and/or instructions
+        // 1️⃣ Checa novos processos
         check_new_commands(&command_queue, &blocked_queue, &ready_queue, server_fd, current_time_ms);
 
-        if (current_time_ms%1000 == 0) {
-            printf("Current time: %d s\n", current_time_ms/1000);
-        }
-        // Check the status of the PCBs in the blocked queue
+        // 2️⃣ Atualiza bloqueados
         check_blocked_queue(&blocked_queue, &command_queue, current_time_ms);
-        // Tasks from the blocked queue could be moved to the command queue, check again
-        usleep(TICKS_MS * 1000/2);
-        check_new_commands(&command_queue, &blocked_queue, &ready_queue, server_fd, current_time_ms);
 
-        // The scheduler handles the READY queue
+        // 3️⃣ Executa escalonador
         switch (scheduler_type) {
             case SCHED_FIFO:
                 fifo_scheduler(current_time_ms, &ready_queue, &CPU);
@@ -315,17 +276,24 @@ int main(int argc, char *argv[]) {
             case SCHED_RR:
                 rr_scheduler(current_time_ms, &ready_queue, &CPU, RR_QUANTUM_MS);
                 break;
-
+            case SCHED_SJF:
+                sjf_scheduler(current_time_ms, &ready_queue, &CPU);
+                break;
             default:
                 printf("Unknown scheduler type\n");
                 break;
         }
 
-        // Simulate a tick
-        usleep(TICKS_MS * 1000/2);
+        // 4️⃣ Mostra tempo
+        if (current_time_ms % 1000 == 0)
+            printf("Current time: %u s\n", current_time_ms / 1000);
+
+        // 5️⃣ Espera um tick
+        usleep(TICKS_MS * 1000);
+
+        // 6️⃣ Incrementa tempo
         current_time_ms += TICKS_MS;
     }
 
-    // Unreachable, because of the infinite loop
-    return 0;
+
 }

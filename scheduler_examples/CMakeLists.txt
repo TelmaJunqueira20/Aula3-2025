@@ -3,7 +3,9 @@ project(scheduling C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(scheduler ossim.c queue.c fifo.c rr.c)
+add_executable(scheduler ossim.c queue.c fifo.c rr.c
+        sjf.h
+        sjf.c)
 
 add_executable(app app.c
         cmake-build-debug/)

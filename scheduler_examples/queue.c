@@ -12,7 +12,10 @@ pcb_t *new_pcb(pid_t pid, uint32_t sockfd, uint32_t time_ms) {
     new_task->slice_start_ms = 0;
     new_task->sockfd = sockfd;
     new_task->time_ms = time_ms;
-    new_task->ellapsed_time_ms = 0;
+    new_task->cpu_time_ms = 0;
+    new_task->quantum_used_ms = 0;   // inicializa quantum
+    new_task->arrival_time_ms = 0;   // opcional, mas útil
+
     return new_task;
 }
 

@@ -21,8 +21,8 @@
  */
 void fifo_scheduler(uint32_t current_time_ms, queue_t *rq, pcb_t **cpu_task) {
     if (*cpu_task) {
-        (*cpu_task)->ellapsed_time_ms += TICKS_MS;      // Add to the running time of the application/task
-        if ((*cpu_task)->ellapsed_time_ms >= (*cpu_task)->time_ms) {
+        (*cpu_task)->cpu_time_ms += TICKS_MS;      // Add to the running time of the application/task
+        if ((*cpu_task)->cpu_time_ms >= (*cpu_task)->time_ms) {
             // Task finished
             // Send msg to application
             msg_t msg = {
