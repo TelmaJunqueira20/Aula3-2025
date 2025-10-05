@@ -21,6 +21,7 @@ typedef struct pcb_st{
     uint32_t last_update_time_ms;// Last time the PCB was updataed
     uint32_t quantum_used_ms;
     uint32_t arrival_time_ms;
+    int mlfq_level;
 } pcb_t;
 
 // Define singly linked list elements

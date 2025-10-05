@@ -28,8 +28,9 @@ void rr_scheduler(uint32_t current_time_ms, queue_t *ready_queue, pcb_t **cpu_ta
             msg_t msg = {
                 .pid = (*cpu_task)->pid,
                 .request = PROCESS_REQUEST_DONE,
-                .time_ms = (uint32_t)elapsed_time_ms
+                .time_ms = (*cpu_task)->cpu_time_ms
             };
+
 
 
             if (write((*cpu_task)->sockfd, &msg, sizeof(msg_t)) != sizeof(msg_t))
